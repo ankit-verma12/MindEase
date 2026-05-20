@@ -1,52 +1,95 @@
 from fastapi import APIRouter, HTTPException
-from app.models.schemas import ChatRequest, ChatResponse
-from app.services.gemini_service import get_ai_response
-from app.services.alert_service import send_crisis_alert
+from pydantic import BaseModel
+from typing import List
 import sqlite3
 
 router = APIRouter()
 
-def save_chat_message(session_id: str, role: str, content: str):
+class MoodEntry(BaseModel):
+    session_id: str
+    score: int
+    note: str = ""
+
+class MoodResponse(BaseModel):
+    id: int
+    session_id: str
+    score: int
+    note: str
+    date: str
+
+class AnalyticsResponse(BaseModel):
+    dates: List[str]
+    scores: List[int]
+    average: float
+    highest: int
+    lowest: int
+
+def get_db():
     conn = sqlite3.connect("mindease.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_mood_table():
+    conn = get_db()
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS chat_history (
+        CREATE TABLE IF NOT EXISTS moods (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT,
-            role TEXT,
-            content TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            session_id TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            note TEXT DEFAULT '',
+            created_at TEXT DEFAULT (date('now'))
         )
     """)
-    conn.execute(
-        "INSERT INTO chat_history (session_id, role, content) VALUES (?, ?, ?)",
-        (session_id, role, content)
-    )
     conn.commit()
     conn.close()
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    try:
-        result = get_ai_response(request.message, request.history)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
+init_mood_table()
 
-    save_chat_message(request.session_id, "user", request.message)
-    save_chat_message(request.session_id, "assistant", result["reply"])
+@router.post("/mood", response_model=MoodResponse)
+def save_mood(entry: MoodEntry):
+    if not 1 <= entry.score <= 10:
+        raise HTTPException(status_code=400, detail="Score must be between 1 and 10")
 
-    alert_sent = False
-    if result["is_crisis"] and request.emergency_contact:
-        alert_sent = await send_crisis_alert(
-            chat_id=request.emergency_contact.telegram_chat_id,
-            contact_name=request.emergency_contact.name,
-            session_id=request.session_id,
-        )
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO moods (session_id, score, note) VALUES (?, ?, ?)",
+        (entry.session_id, entry.score, entry.note)
+    )
+    conn.commit()
+    row_id = cursor.lastrowid
+    row = conn.execute("SELECT * FROM moods WHERE id = ?", (row_id,)).fetchone()
+    conn.close()
 
-    return ChatResponse(
-        reply=result["reply"],
-        emotion_scores=result["emotion_scores"],
-        is_crisis=result["is_crisis"],
-        crisis_resources=result["crisis_resources"],
-        session_id=request.session_id,
-        alert_sent=alert_sent,
+    return MoodResponse(
+        id=row["id"],
+        session_id=row["session_id"],
+        score=row["score"],
+        note=row["note"],
+        date=row["created_at"]
+    )
+
+@router.get("/analytics/{session_id}", response_model=AnalyticsResponse)
+def get_analytics(session_id: str, days: int = 7):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT score, created_at
+        FROM moods
+        WHERE session_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (session_id, days)).fetchall()
+    conn.close()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="No mood data found")
+
+    scores = [r["score"] for r in rows]
+    dates  = [r["created_at"] for r in rows]
+
+    return AnalyticsResponse(
+        dates=list(reversed(dates)),
+        scores=list(reversed(scores)),
+        average=round(sum(scores) / len(scores), 1),
+        highest=max(scores),
+        lowest=min(scores)
     )
