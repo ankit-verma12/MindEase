@@ -8,7 +8,7 @@ from app.models.schemas import ChatMessage, EmotionScores
 client = genai.Client(api_key=settings.gemini_api_key)
 
 SYSTEM_PROMPT = """
-You are MindEase, a warm Indian friend who is emotionally aware without sounding like a therapist.
+You are MindEase, a warm friend who is emotionally aware without sounding like a therapist.
 
 CONVERSATION CONTINUITY:
 - Use the recent chat history as context for the user's latest message.
@@ -27,20 +27,21 @@ HOW TO SOUND HUMAN:
 - No bullet points or lists in the reply.
 - Emojis are optional, max one, and only for happy/light messages.
 
-LANGUAGE STYLE FOR INDIA:
-- Use natural Hinglish when it fits, like a caring Indian friend texting.
-- If the user writes in Hinglish or Hindi, reply in Hinglish.
-- If the user writes fully in English, use simple English with light Indian warmth.
-- Keep Hindi words in Roman script, not Devanagari.
-- Use common words like "yaar", "acha", "kya", "matlab", "thoda", "bahut", "tension", "scene", "ghar", "padhai" only where they feel natural.
+LANGUAGE STYLE:
+- Mirror the user's language.
+- If the user writes fully in English, reply fully in English. Do not use Hindi or Hinglish words like "arre", "yaar", "acha", "kya", "matlab", "thoda", "bahut", "ghar", or "padhai".
+- If the user writes in Hinglish or Hindi, reply in natural Hinglish using Roman script, not Devanagari.
+- If the user mixes English and Hinglish, match that mix lightly.
+- Never assume the user is Indian because of the app name, topic, examples, or chat history. Only use Hinglish when the latest user message clearly uses Hindi/Hinglish.
 - Do not overdo slang. The reply should still feel caring and respectful.
 
 GOOD STYLE EXAMPLES:
-User: "my crush proposed me!" -> "Wait seriously?! Arre bhaisabh ,yeh toh badhiya baat hai, Kaise bola usne?"
-User: "she broke up with me" -> "abe bc yeh kaise hua ,kuch badhiya kha le modd badhiya ho jayga . Suddenly hua ya kuch time se issues chal rahe the?"
-User: "my family is pressuring me" -> "Uff, ghar se pressure aaye toh bahut heavy lagta hai. Kis cheez ke liye pressure kar rahe hain?"
-User: "I got 49/50 in my exam!" -> "49 out of 50?! Arre wah, top kardiya kya ?. Kaunsa subject tha?"
-User: "hello i got full marks in my chemistry paper and i am so happy" -> "Full marks in chemistry?! Arre wah, that's huge. Bahut proud feel ho raha hoga na?"
+User: "my crush proposed to me!" -> "Wait seriously?! That's such good news. How did they say it?"
+User: "she broke up with me" -> "Oof, that must really hurt. Did it happen suddenly, or had things been rough for a while?"
+User: "my family is pressuring me" -> "That kind of pressure from home can feel really heavy. What are they pressuring you about?"
+User: "I got 49/50 in my exam!" -> "49 out of 50?! That's brilliant. Which subject was it?"
+User: "hello i got full marks in my chemistry paper and i am so happy" -> "Full marks in chemistry?! That's huge. You must be feeling so proud right now."
+User: "ghar wale bahut pressure de rahe hain" -> "Uff, ghar se pressure aaye toh bahut heavy lagta hai. Kis cheez ke liye pressure kar rahe hain?"
 
 CRISIS RULE - NON NEGOTIABLE:
 If message contains: suicide / kill myself / want to die / hurt myself / end my life / better off without me / everyone would be better off / looking up things i shouldn't
@@ -85,7 +86,6 @@ def normalize_hinglish_text(message: str) -> str:
         "jina": "jeena",
         "jeena": "jeena",
         "maan": "mann",
-        "man": "mann",
         "marrna": "marna",
         "marr": "mar",
         "jaau": "jau",
@@ -99,6 +99,23 @@ def normalize_hinglish_text(message: str) -> str:
 
     words = [replacements.get(word, word) for word in text.split()]
     return " ".join(words)
+
+def uses_hindi_or_hinglish(message: str) -> bool:
+    text = normalize_hinglish_text(message)
+    if re.search(r"[\u0900-\u097F]", message):
+        return True
+
+    hinglish_terms = [
+        "nahi", "nahin", "kya", "kaise", "kyun", "matlab", "thoda",
+        "bahut", "bohot", "acha", "accha", "achha", "arre", "yaar",
+        "mann", "ghar", "padhai", "dimaag", "dil", "baat", "karna",
+        "karne", "lagta", "lagti", "hua", "hui", "hoon", "hu", "hai",
+        "mujhe", "tum", "mera", "meri", "mere", "aaj", "kal", "bas",
+        "sab", "kuch", "khush", "dukhi", "udaas", "pareshan",
+    ]
+
+    words = set(text.split())
+    return any(term in words for term in hinglish_terms)
 
 def is_crisis_message(message: str) -> bool:
     text = normalize_hinglish_text(message)
@@ -236,11 +253,19 @@ def is_social_withdrawal_message(message: str) -> bool:
     return has_withdrawal or ("baat" in text and has_low_mood)
 
 def get_positive_achievement_response(message: str) -> dict:
-    return {
-        "reply": (
+    if not uses_hindi_or_hinglish(message):
+        reply = (
+            "Full marks?! That's huge. You must be feeling so proud right now. "
+            "Was this the subject you were most confident about?"
+        )
+    else:
+        reply = (
             "Full marks?! Arre wah, that's huge. Bahut proud feel ho raha hoga na? "
             "Was this the subject you were most confident about?"
-        ),
+        )
+
+    return {
+        "reply": reply,
         "emotion_scores": EmotionScores(
             anxiety_score=1,
             stress_score=1,
@@ -251,11 +276,18 @@ def get_positive_achievement_response(message: str) -> dict:
     }
 
 def get_positive_mood_response(message: str) -> dict:
-    return {
-        "reply": (
+    if not uses_hindi_or_hinglish(message):
+        reply = (
+            "That's lovely to hear. Did something special happen, or is today just going well?"
+        )
+    else:
+        reply = (
             "Arre nice, aaj mood khush hai sunke accha laga. "
             "Kuch special hua ya bas day achha ja raha hai?"
-        ),
+        )
+
+    return {
+        "reply": reply,
         "emotion_scores": EmotionScores(
             anxiety_score=3,
             stress_score=3,
@@ -275,57 +307,105 @@ def get_fallback_response(message: str, history: list[ChatMessage] | None = None
     text = normalize_hinglish_text(message)
     crisis = is_crisis_message(message)
     last_user_message = get_last_user_message(history or [])
+    use_hinglish = uses_hindi_or_hinglish(message)
 
     if crisis:
-        reply = (
-            "Mujhe glad hai tumne yeh bola. Please abhi is feeling ke saath akele mat raho. "
-            "Kya tum kisi trusted person ko abhi call ya message kar sakte ho?"
-        )
+        if use_hinglish:
+            reply = (
+                "Mujhe glad hai tumne yeh bola. Please abhi is feeling ke saath akele mat raho. "
+                "Kya tum kisi trusted person ko abhi call ya message kar sakte ho?"
+            )
+        else:
+            reply = (
+                "I'm really glad you told me. Please don't stay alone with this feeling right now. "
+                "Can you call or message someone you trust?"
+            )
         anxiety, stress, emotions = 9, 9, ["distressed", "unsafe"]
     elif is_positive_achievement_message(message):
         return get_positive_achievement_response(message)
     elif is_positive_mood_message(message):
         return get_positive_mood_response(message)
     elif any(word in text for word in ["exam", "study", "marks", "math", "assignment", "test"]):
-        reply = (
-            "Uff, exam pressure sach mein dimaag pe chadh jaata hai. "
-            "Sabse zyada tension kis cheez ki ho rahi hai?"
-        )
+        if use_hinglish:
+            reply = (
+                "Uff, exam pressure sach mein dimaag pe chadh jaata hai. "
+                "Sabse zyada tension kis cheez ki ho rahi hai?"
+            )
+        else:
+            reply = (
+                "Exam pressure can really sit heavily on your mind. "
+                "What part is stressing you out the most?"
+            )
         anxiety, stress, emotions = 7, 8, ["anxious", "overwhelmed"]
     elif any(word in text for word in ["breakup", "broke up", "crush", "relationship", "love"]):
-        reply = (
-            "Oof, yeh wali feeling chest mein atak jaati hai kabhi kabhi. "
-            "Tum dono ke beech kya hua?"
-        )
+        if use_hinglish:
+            reply = (
+                "Oof, yeh wali feeling chest mein atak jaati hai kabhi kabhi. "
+                "Tum dono ke beech kya hua?"
+            )
+        else:
+            reply = (
+                "Oof, that kind of feeling can really sit in your chest. "
+                "What happened between you two?"
+            )
         anxiety, stress, emotions = 6, 7, ["sad", "hurt"]
     elif any(word in text for word in ["family", "parents", "pressure", "home"]):
-        reply = (
-            "Uff, close logon se pressure aaye toh aur exhausting lagta hai. "
-            "Sabse zyada kis baat ka pressure hai?"
-        )
+        if use_hinglish:
+            reply = (
+                "Uff, close logon se pressure aaye toh aur exhausting lagta hai. "
+                "Sabse zyada kis baat ka pressure hai?"
+            )
+        else:
+            reply = (
+                "Pressure from people close to you can feel especially exhausting. "
+                "What are they pressuring you about the most?"
+            )
         anxiety, stress, emotions = 7, 8, ["pressured", "stressed"]
     elif is_social_withdrawal_message(message):
-        reply = (
-            "Yeh wali feeling heavy lag sakti hai, jab kisi se baat karne ka mann hi na kare. "
-            "Theek hai, solitude chahiye toh thoda space lo, bas apne aap ko bilkul cut off mat karna."
-        )
+        if use_hinglish:
+            reply = (
+                "Yeh wali feeling heavy lag sakti hai, jab kisi se baat karne ka mann hi na kare. "
+                "Theek hai, solitude chahiye toh thoda space lo, bas apne aap ko bilkul cut off mat karna."
+            )
+        else:
+            reply = (
+                "That can feel heavy, when you don't want to talk to anyone at all. "
+                "It's okay to take some space, just try not to cut yourself off completely."
+            )
         anxiety, stress, emotions = 7, 7, ["withdrawn", "low", "overwhelmed"]
     elif any(word in text for word in ["happy", "excited", "passed", "won", "good news"]):
-        reply = (
-            "Arre wah, that's so good to hear. Properly batao, kya hua?"
-        )
+        if use_hinglish:
+            reply = (
+                "Arre wah, that's so good to hear. Properly batao, kya hua?"
+            )
+        else:
+            reply = (
+                "That's so good to hear. Tell me properly, what happened?"
+            )
         anxiety, stress, emotions = 2, 2, ["happy", "excited"]
     elif last_user_message:
-        reply = (
-            "Haan, samajh raha hoon. Jo tum pehle bata rahe the usi ka yeh next part lag raha hai. "
-            "Ismein abhi sabse zyada kya feel ho raha hai?"
-        )
+        if use_hinglish:
+            reply = (
+                "Haan, samajh raha hoon. Jo tum pehle bata rahe the usi ka yeh next part lag raha hai. "
+                "Ismein abhi sabse zyada kya feel ho raha hai?"
+            )
+        else:
+            reply = (
+                "Yeah, I get you. This sounds connected to what you were saying earlier. "
+                "What are you feeling most strongly about it right now?"
+            )
         anxiety, stress, emotions = 5, 5, ["reflective"]
     else:
-        reply = (
-            "Main sun raha hoon. Jaise bhi mann mein aa raha hai, waise bol do. "
-            "Aaj dimaag mein sabse zyada kya chal raha hai?"
-        )
+        if use_hinglish:
+            reply = (
+                "Main sun raha hoon. Jaise bhi mann mein aa raha hai, waise bol do. "
+                "Aaj dimaag mein sabse zyada kya chal raha hai?"
+            )
+        else:
+            reply = (
+                "I'm listening. Say it however it comes to mind. "
+                "What's been taking up the most space in your head today?"
+            )
         anxiety, stress, emotions = 4, 4, ["neutral"]
 
     return {
@@ -391,8 +471,12 @@ def get_ai_response(message: str, history: list[ChatMessage]) -> dict:
             anxiety = min(anxiety, 3)
             stress = min(stress, 3)
 
+        reply = parsed.get("reply", "Hey, I'm listening. What's on your mind?")
+        if not uses_hindi_or_hinglish(message) and uses_hindi_or_hinglish(reply):
+            return get_fallback_response(message, trimmed_history)
+
         return {
-            "reply": parsed.get("reply", "Hey, main sun raha hoon. What's on your mind?"),
+            "reply": reply,
             "emotion_scores": EmotionScores(
                 anxiety_score=anxiety,
                 stress_score=stress,
