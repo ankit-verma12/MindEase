@@ -12,6 +12,11 @@ export default function MentalHealthDashboard() {
   const [showTelegramModal, setShowTelegramModal] =
     useState(false);
 
+  const [userName, setUserName] = useState(
+    localStorage.getItem("userName") || ""
+  ); const [emergencyContactName, setEmergencyContactName] = useState(
+    localStorage.getItem("emergencyContactName") || ""
+  );
   const [chatId, setChatId] = useState(
     localStorage.getItem("telegramChatId") || ""
   );
@@ -33,68 +38,151 @@ export default function MentalHealthDashboard() {
     <>
       {/* Telegram Modal */}
       {showTelegramModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50">
 
-          <div className="bg-slate-900 border border-white/10 w-[380px] rounded-[2rem] p-7 shadow-2xl">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
 
+          <div className="bg-slate-900 border border-white/10 w-full max-w-[420px] rounded-[2rem] p-5 sm:p-7 shadow-2xl">
+
+            {/* Heading */}
             <h2 className="text-2xl font-semibold text-white mb-2">
-              Telegram Setup
+              MindEase Setup
             </h2>
 
-            <p className="text-slate-400 text-sm mb-5 leading-relaxed">
-              Add your Telegram Chat ID for crisis alerts
-              and wellness notifications.
+            <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+              Add your details and Telegram contact for
+              emergency wellness alerts.
             </p>
 
-            <input
-              type="text"
-              placeholder="Telegram Chat ID"
-              value={chatId}
-              onChange={(e) => setChatId(e.target.value)}
-              className="w-full rounded-2xl border border-white/10 bg-slate-800 px-4 py-3 outline-none mb-5 text-white placeholder:text-slate-500"
-            />
+            {/* Inputs */}
+            <div className="space-y-4 mb-6">
 
-            <div className="flex gap-3">
+              {/* User Name */}
+              <input
+                type="text"
+                placeholder="Your Name"
+                value={userName}
+                onChange={(e) =>
+                  setUserName(e.target.value)
+                }
+                className="w-full rounded-2xl border border-white/10 bg-slate-800 px-4 py-3 outline-none text-white placeholder:text-slate-500"
+              />
 
+              {/* Trusted Contact */}
+              <input
+                type="text"
+                placeholder="Trusted Contact Name"
+                value={emergencyContactName}
+                onChange={(e) =>
+                  setContactName(e.target.value)
+                }
+                className="w-full rounded-2xl border border-white/10 bg-slate-800 px-4 py-3 outline-none text-white placeholder:text-slate-500"
+              />
+
+              {/* Telegram Chat ID */}
+              <input
+                type="text"
+                placeholder="Telegram Chat ID (Optional)"
+                value={chatId}
+                onChange={(e) =>
+                  setChatId(e.target.value)
+                }
+                className="w-full rounded-2xl border border-white/10 bg-slate-800 px-4 py-3 outline-none text-white placeholder:text-slate-500"
+              />
+
+            </div>
+
+            {/* Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3">
+
+              {/* Save */}
               <button
                 onClick={() => {
 
-                  if (!chatId.trim()) {
-                    alert("Enter a Chat ID");
-                    return;
-                  }
+                  // validate telegram only if entered
+                  if (chatId.trim()) {
 
-                  if (!/^\d+$/.test(chatId)) {
-                    alert(
-                      "Chat ID must contain only numbers"
+                    if (!/^\d+$/.test(chatId)) {
+
+                      alert(
+                        "Chat ID must contain only numbers"
+                      );
+
+                      return;
+                    }
+
+                    localStorage.setItem(
+                      "telegramChatId",
+                      chatId
                     );
-                    return;
                   }
 
+                  // save user name
                   localStorage.setItem(
-                    "telegramChatId",
-                    chatId
+                    "userName",
+                    userName || "MindEase User"
                   );
 
-                  alert("Telegram connected");
+                  // save trusted contact
+                  localStorage.setItem(
+                    "emergencyContactName",
+                    contactName ||
+                    "Trusted Contact"
+                  );
+
+                  // save setup state
+                  localStorage.setItem(
+                    "setupComplete",
+                    "true"
+                  );
+
+                  // create persistent session
+                  let sessionId =
+                    localStorage.getItem(
+                      "sessionId"
+                    );
+
+                  if (!sessionId) {
+
+                    sessionId =
+                      crypto.randomUUID();
+
+                    localStorage.setItem(
+                      "sessionId",
+                      sessionId
+                    );
+                  }
+
+                  alert(
+                    "MindEase setup complete"
+                  );
 
                   setShowTelegramModal(false);
+
+                  window.location.reload();
                 }}
-                className="flex-1 rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 text-white py-3 text-sm font-medium hover:opacity-90 transition"
+
+                className="flex-1 rounded-full bg-gradient-to-r from-violet-500 via-indigo-500 to-cyan-500 text-white py-3 text-sm font-medium hover:opacity-90 transition"
               >
-                Save
+                Save Setup
               </button>
 
+              {/* Close */}
               <button
                 onClick={() =>
                   setShowTelegramModal(false)
                 }
-                className="px-5 rounded-full bg-slate-700 text-slate-200 text-sm hover:bg-slate-600 transition"
+                className="px-5 py-3 rounded-full bg-slate-700 text-slate-200 text-sm hover:bg-slate-600 transition"
               >
                 Close
               </button>
 
             </div>
+
+            {/* Footer */}
+            <p className="text-xs text-slate-500 text-center mt-5 leading-relaxed">
+              Telegram can be added later from the
+              dashboard settings.
+            </p>
 
           </div>
 
@@ -290,19 +378,17 @@ export default function MentalHealthDashboard() {
                 {messages.map((msg, idx) => (
                   <div
                     key={idx}
-                    className={`flex ${
-                      msg.role === "user"
-                        ? "justify-end"
-                        : "justify-start"
-                    }`}
+                    className={`flex ${msg.role === "user"
+                      ? "justify-end"
+                      : "justify-start"
+                      }`}
                   >
 
                     <div
-                      className={`max-w-lg px-6 py-4 rounded-[1.8rem] text-sm leading-relaxed shadow-sm ${
-                        msg.role === "user"
-                          ? "bg-gradient-to-br from-violet-600 to-indigo-700 text-white"
-                          : "bg-slate-800/80 text-slate-200 border border-white/10"
-                      }`}
+                      className={`max-w-lg px-6 py-4 rounded-[1.8rem] text-sm leading-relaxed shadow-sm ${msg.role === "user"
+                        ? "bg-gradient-to-br from-violet-600 to-indigo-700 text-white"
+                        : "bg-slate-800/80 text-slate-200 border border-white/10"
+                        }`}
                     >
                       {msg.text}
                     </div>
