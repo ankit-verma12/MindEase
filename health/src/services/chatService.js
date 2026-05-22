@@ -35,5 +35,5 @@ export const sendChatMessage = async (
     throw new Error("Backend request failed");
   }
 
-  return response.json();
+  return response.json(); 
 };
