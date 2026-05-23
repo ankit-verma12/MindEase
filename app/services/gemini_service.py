@@ -351,6 +351,28 @@ def get_last_user_message(history: list[ChatMessage]) -> str | None:
             return msg.content
     return None
 
+def get_valid_gemini_history(history: list[ChatMessage]) -> list[ChatMessage]:
+    valid_history = [
+        msg
+        for msg in history
+        if msg.role in {"user", "assistant"} and msg.content.strip()
+    ]
+
+    while valid_history and valid_history[0].role == "assistant":
+        valid_history.pop(0)
+
+    compacted_history = []
+    for msg in valid_history:
+        if compacted_history and compacted_history[-1].role == msg.role:
+            compacted_history[-1] = ChatMessage(
+                role=msg.role,
+                content=f"{compacted_history[-1].content}\n\n{msg.content}",
+            )
+        else:
+            compacted_history.append(msg)
+
+    return compacted_history
+
 def is_vague_continuation_message(message: str) -> bool:
     text = normalize_hinglish_text(message)
     if not text:
@@ -529,17 +551,22 @@ def get_fallback_response(message: str, history: list[ChatMessage] | None = None
 def get_ai_response(message: str, history: list[ChatMessage]) -> dict:
     contents = []
     trimmed_history = history[-MAX_HISTORY_CONTEXT:] if history else []
+    gemini_history = get_valid_gemini_history(trimmed_history)
 
-    for msg in trimmed_history:
+    for msg in gemini_history:
         role = "user" if msg.role == "user" else "model"
         contents.append(types.Content(
             role=role,
             parts=[types.Part(text=msg.content)]
         ))
-    contents.append(types.Content(
-        role="user",
-        parts=[types.Part(text=message)]
-    ))
+
+    if contents and contents[-1].role == "user":
+        contents[-1].parts.append(types.Part(text=message))
+    else:
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part(text=message)]
+        ))
 
     try:
         response = client.models.generate_content(
@@ -600,4 +627,4 @@ def get_ai_response(message: str, history: list[ChatMessage]) -> dict:
 
     except Exception as e:
         print(f"[ERROR] Gemini API failed: {e}")
-        return get_fallback_response(message, trimmed_history)
+        return get_fallback_response(message, gemini_history)
