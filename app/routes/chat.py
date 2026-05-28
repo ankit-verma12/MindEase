@@ -83,12 +83,20 @@ def save_emotion_scores(session_id: str, emotion_scores):
     conn.commit()
     conn.close()
 
+def get_request_history(request: ChatRequest) -> list[ChatMessage]:
+    return [
+        message
+        for message in request.history
+        if message.role in {"user", "assistant"} and message.content.strip()
+    ]
+
 init_chat_table()
 init_emotion_scores_table()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    history = get_chat_history(request.session_id)
+    request_history = get_request_history(request)
+    history = request_history or get_chat_history(request.session_id)
 
     try:
         result = get_ai_response(request.message, history)
@@ -128,6 +136,8 @@ async def chat(request: ChatRequest):
     return ChatResponse(
         reply=result["reply"],
         emotion_scores=result["emotion_scores"],
+        insights=result.get("insights", []),
+        suggestions=result.get("suggestions", []),
         is_crisis=result["is_crisis"],
         crisis_resources=result["crisis_resources"],
         session_id=request.session_id,

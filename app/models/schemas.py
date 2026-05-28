@@ -48,6 +48,8 @@ class EmotionScores(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     emotion_scores: EmotionScores
+    insights: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
     is_crisis: bool
     crisis_resources: Optional[List[str]]
     session_id: str

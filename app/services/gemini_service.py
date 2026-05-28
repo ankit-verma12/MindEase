@@ -14,6 +14,7 @@ CONVERSATION CONTINUITY:
 - Use the recent chat history as context for the user's latest message.
 - If the user changes wording, adds a detail, or answers your question in the same session, continue the same conversation instead of greeting or restarting.
 - Do not ask "what's on your mind?" when the history already shows what you were discussing.
+- Treat short or emotional follow-ups as part of the current thread unless the user clearly starts a new topic.
 
 HOW TO SOUND HUMAN:
 - React to the exact mood of the user's message before giving advice.
@@ -55,8 +56,15 @@ SCORING:
 - 7-8: Sad, heartbroken, anxious, family pressure, social withdrawal, wanting isolation because talking feels hard
 - 9-10: Crisis, suicidal thoughts, self harm
 
+DASHBOARD DATA:
+- Generate 2-3 short insights for the side panel based on the recent chat history and latest message.
+- Generate 2-3 gentle, practical suggestions that match the user's current situation.
+- Keep insights observational, not diagnostic.
+- Keep suggestions specific to the user's context when possible.
+- Do not repeat the exact same generic suggestions every turn.
+
 OUTPUT - raw JSON only, no markdown, no backticks:
-{"reply": "your casual human response", "anxiety_score": 2, "stress_score": 1, "emotions": ["excited"], "is_crisis": false}
+{"reply": "your casual human response", "anxiety_score": 2, "stress_score": 1, "emotions": ["excited"], "insights": ["short context-aware insight"], "suggestions": ["short context-aware suggestion"], "is_crisis": false}
 """
 
 CRISIS_RESOURCES = [
@@ -67,6 +75,7 @@ CRISIS_RESOURCES = [
 
 MAX_HISTORY_CONTEXT = 12
 GEMINI_MODEL = "gemini-2.5-flash"
+MAX_DASHBOARD_ITEMS = 3
 
 def normalize_hinglish_text(message: str) -> str:
     text = message.lower()
@@ -240,6 +249,17 @@ def is_positive_relationship_message(message: str) -> bool:
 
     return has_positive and has_relationship and not has_distress
 
+def is_relationship_message(message: str) -> bool:
+    text = normalize_hinglish_text(message)
+    relationship_terms = [
+        "breakup", "broke up", "crush", "relationship", "girlfriend",
+        "boyfriend", "dating", "date", "proposal", "proposed",
+        "rejected", "left me", "cheated", "love me", "love me back",
+        "she loves", "he loves", "they love",
+    ]
+
+    return any(term in text for term in relationship_terms)
+
 def is_social_withdrawal_message(message: str) -> bool:
     text = normalize_hinglish_text(message)
     withdrawal_terms = [
@@ -298,6 +318,14 @@ def get_positive_achievement_response(message: str) -> dict:
             stress_score=1,
             emotions=["happy", "proud", "excited"],
         ),
+        "insights": [
+            "Achievement is showing up as a positive emotional boost.",
+            "The user may feel proud and energized right now.",
+        ],
+        "suggestions": [
+            "Pause for a moment and let the achievement sink in.",
+            "Share what made this result possible with someone supportive.",
+        ],
         "is_crisis": False,
         "crisis_resources": None,
     }
@@ -320,6 +348,14 @@ def get_positive_mood_response(message: str) -> dict:
             stress_score=3,
             emotions=["happy", "calm"],
         ),
+        "insights": [
+            "The user is currently reporting a lighter mood.",
+            "This may be a good moment to notice what is helping.",
+        ],
+        "suggestions": [
+            "Notice one thing that made today feel better.",
+            "Keep the next step simple so the calm can last longer.",
+        ],
         "is_crisis": False,
         "crisis_resources": None,
     }
@@ -343,6 +379,14 @@ def get_positive_relationship_response(message: str) -> dict:
             stress_score=1,
             emotions=["happy", "excited", "loved"],
         ),
+        "insights": [
+            "The user is sharing happy relationship-related news.",
+            "Excitement and connection are present in this moment.",
+        ],
+        "suggestions": [
+            "Enjoy the moment before overthinking the next step.",
+            "Share how you feel honestly and gently.",
+        ],
         "is_crisis": False,
         "crisis_resources": None,
     }
@@ -355,6 +399,40 @@ def get_last_user_message(history: list[ChatMessage]) -> str | None:
 
 def get_history_text(history: list[ChatMessage]) -> str:
     return " ".join(msg.content for msg in history if msg.content.strip())
+
+def normalize_dashboard_items(items, fallback: list[str]) -> list[str]:
+    if not isinstance(items, list):
+        return fallback
+
+    normalized = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+
+        text = re.sub(r"\s+", " ", item).strip()
+        if text:
+            normalized.append(text[:180])
+
+        if len(normalized) == MAX_DASHBOARD_ITEMS:
+            break
+
+    return normalized or fallback
+
+def get_default_insights(emotions: list[str] | None = None) -> list[str]:
+    if emotions:
+        readable_emotions = ", ".join(emotions[:2])
+        return [f"Current conversation tone suggests {readable_emotions}."]
+
+    return ["Share a little more so MindEase can understand the pattern."]
+
+def get_default_suggestions(crisis: bool = False) -> list[str]:
+    if crisis:
+        return [
+            "Stay near someone you trust if possible.",
+            "Contact a local crisis helpline or emergency service now.",
+        ]
+
+    return ["Take one slow breath and name the hardest part in one sentence."]
 
 def get_valid_gemini_history(history: list[ChatMessage]) -> list[ChatMessage]:
     valid_history = [
@@ -456,6 +534,14 @@ def get_contextual_fallback_response(message: str, history: list[ChatMessage]) -
                 stress_score=1,
                 emotions=["happy", "proud"],
             ),
+            "insights": [
+                "The user is referring back to an earlier achievement.",
+                "Remembered progress appears to be supporting their mood.",
+            ],
+            "suggestions": [
+                "Use this result as evidence that effort is working.",
+                "Write down one thing you did well so you can repeat it.",
+            ],
             "is_crisis": False,
             "crisis_resources": None,
         }
@@ -478,6 +564,32 @@ def parse_gemini_json(raw: str) -> dict:
         decoder = json.JSONDecoder()
         parsed, _ = decoder.raw_decode(cleaned[start:])
         return parsed
+
+def compact_context_line(content: str, max_length: int = 280) -> str:
+    line = re.sub(r"\s+", " ", content).strip()
+    if len(line) <= max_length:
+        return line
+    return f"{line[:max_length].rstrip()}..."
+
+def build_system_instruction(history: list[ChatMessage]) -> str:
+    if not history:
+        return SYSTEM_PROMPT
+
+    recent_lines = [
+        f"- {msg.role}: {compact_context_line(msg.content)}"
+        for msg in history[-8:]
+        if msg.content.strip()
+    ]
+    if not recent_lines:
+        return SYSTEM_PROMPT
+
+    recent_context = "\n".join(recent_lines)
+    return f"""{SYSTEM_PROMPT}
+
+RECENT CHAT HISTORY FOR CONTINUITY:
+{recent_context}
+
+Use this history to understand what the user's latest message refers to. If they say things like "it", "this", "that", "I love it", "same", or answer your previous question, resolve it from the recent chat before choosing a topic."""
 
 def get_fallback_response(message: str, history: list[ChatMessage] | None = None) -> dict:
     history = history or []
@@ -519,7 +631,7 @@ def get_fallback_response(message: str, history: list[ChatMessage] | None = None
                 "What part is stressing you out the most?"
             )
         anxiety, stress, emotions = 7, 8, ["anxious", "overwhelmed"]
-    elif any(word in text for word in ["breakup", "broke up", "crush", "relationship", "love"]):
+    elif is_relationship_message(message):
         if use_hinglish:
             reply = (
                 "Oof, yeh wali feeling chest mein atak jaati hai kabhi kabhi. "
@@ -632,6 +744,8 @@ def get_fallback_response(message: str, history: list[ChatMessage] | None = None
             stress_score=stress,
             emotions=emotions,
         ),
+        "insights": get_default_insights(emotions),
+        "suggestions": get_default_suggestions(crisis),
         "is_crisis": crisis,
         "crisis_resources": CRISIS_RESOURCES if crisis else None,
     }
@@ -661,7 +775,7 @@ def get_ai_response(message: str, history: list[ChatMessage]) -> dict:
             model=GEMINI_MODEL,
             contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=build_system_instruction(trimmed_history),
                 temperature=0.8,
                 top_p=0.95,
             )
@@ -697,13 +811,33 @@ def get_ai_response(message: str, history: list[ChatMessage]) -> dict:
         if not uses_hindi_or_hinglish(message) and uses_hindi_or_hinglish(reply):
             return get_fallback_response(message, trimmed_history)
 
+        emotions = parsed.get("emotions", ["neutral"])
+        if not isinstance(emotions, list):
+            emotions = ["neutral"]
+        emotions = [
+            str(emotion).strip()
+            for emotion in emotions
+            if str(emotion).strip()
+        ] or ["neutral"]
+        emotions = emotions[:5]
+        insights = normalize_dashboard_items(
+            parsed.get("insights"),
+            get_default_insights(emotions),
+        )
+        suggestions = normalize_dashboard_items(
+            parsed.get("suggestions"),
+            get_default_suggestions(crisis),
+        )
+
         return {
             "reply": reply,
             "emotion_scores": EmotionScores(
                 anxiety_score=anxiety,
                 stress_score=stress,
-                emotions=parsed.get("emotions", ["neutral"]),
+                emotions=emotions,
             ),
+            "insights": insights,
+            "suggestions": suggestions,
             "is_crisis": crisis,
             "crisis_resources": CRISIS_RESOURCES if crisis else None,
         }
