@@ -3,7 +3,7 @@ import { useChat } from "./hooks/useChat";
 
 export default function MentalHealthDashboard() {
 
-  const { stress, anxiety, messages, sendMessage, loading } = useChat();
+  const { stress, anxiety, messages, sendMessage, loading, insights, suggestions } = useChat();
 
   const messagesContainerRef = useRef(null);
 
@@ -28,11 +28,11 @@ export default function MentalHealthDashboard() {
     }
   }, [messages]);
 
-  const reflections = [
-    "You tend to feel calmer after short breaks.",
-    "Late-night study sessions are increasing anxiety patterns.",
-    "Your emotional state improved after grounding exercises.",
-  ];
+  // const reflections = [
+  //   "You tend to feel calmer after short breaks.",
+  //   "Late-night study sessions are increasing anxiety patterns.",
+  //   "Your emotional state improved after grounding exercises.",
+  // ];
 
   return (
     <>
@@ -329,7 +329,7 @@ export default function MentalHealthDashboard() {
 
                 <div className="grid flex-1 content-center gap-3">
 
-                  {reflections.map((item, idx) => (
+                  {insights.map((item, idx) => (
                     <div
                       key={idx}
                       className="bg-slate-900/80 border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-slate-300 shadow-sm"
@@ -469,24 +469,14 @@ export default function MentalHealthDashboard() {
                   Gentle Suggestions
                 </p>
 
-                <div className="grid flex-1 content-center gap-4 text-sm text-slate-300 leading-relaxed">
-
-                  <div className="bg-slate-900/70 rounded-2xl p-4 border border-white/10 shadow-sm">
-                    Take a 10-minute break away from
-                    screens.
-                  </div>
-
-                  <div className="bg-slate-900/70 rounded-2xl p-4 border border-white/10 shadow-sm">
-                    Drink water and relax your shoulders
-                    for a moment.
-                  </div>
-
-                  <div className="bg-slate-900/70 rounded-2xl p-4 border border-white/10 shadow-sm">
-                    Your recent stress patterns suggest
-                    mental fatigue.
-                  </div>
-
-                </div>
+                {suggestions.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-slate-900/80 border border-white/10 rounded-2xl p-4 text-sm leading-relaxed text-slate-300 shadow-sm"
+                    >
+                      {item}
+                    </div>
+                  ))}
 
               </div>
 

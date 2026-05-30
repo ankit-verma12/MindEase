@@ -12,6 +12,16 @@ export const useChat = () => {
   const [loading, setLoading] = useState(false);
   const [stress, setStress] = useState(0);
   const [anxiety, setAnxiety] = useState(0);
+  const [insights, setInsights] = useState([
+    "You tend to feel calmer after short breaks.",
+    "Late-night study sessions are increasing anxiety patterns.",
+    "Your emotional state improved after grounding exercises.",
+  ]);
+  const [suggestions, setSuggestions] = useState([
+    "Take a 10-minute break away from screens.",
+    "Drink water and relax your shoulders for a moment.",
+    "Your recent stress patterns suggest mental fatigue."
+  ]);
 
   const sendMessage = async (input) => {
     if (!input.trim()) return;
@@ -44,9 +54,12 @@ export const useChat = () => {
           "I am here with you.",
       };
 
+      console.log(data);
       setMessages((prev) => [...prev, aiMessage]);
       setStress(data.emotion_scores.stress_score);
       setAnxiety(data.emotion_scores.anxiety_score);
+      setInsights(data.insights || []);
+      setSuggestions(data.suggestions) || [];
 
     } catch (error) {
       console.error(error);
@@ -70,5 +83,7 @@ export const useChat = () => {
     messages,
     sendMessage,
     loading,
+    insights,
+    suggestions
   };
 };
